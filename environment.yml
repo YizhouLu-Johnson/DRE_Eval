@@ -1,0 +1,29 @@
+name: dre
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - pip
+  - jupyter
+  - pip:
+    - numpy==1.23.5
+    - scipy==1.10.1
+    - matplotlib==3.7.1
+    - pandas==1.5.3
+    - scikit-learn==1.2.2
+    - tensorflow==2.13.0
+    - tensorflow-probability==0.20.0
+    - tensorflow-datasets==4.8.3
+    - h5py==3.8.0
+    - chardet==5.1.0
+    - cloudpickle==2.2.1
+    - dill==0.3.6
+    - future==0.18.3
+    - googleapis-common-protos==1.59.0
+    - idna==3.4
+    - promise==2.3
+    - requests==2.28.2
+    - tqdm==4.65.0
+    - dm-tree==0.1.8
+
