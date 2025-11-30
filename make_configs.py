@@ -573,6 +573,47 @@ def save_config(config, name, i):
         json.dump(config, fp, indent=4)
 
 
+def make_gaussians_10d_configs():
+    config = make_base_config()
+    config["data"]["dataset_name"] = "gaussians_10d"
+    config["data"]["data_dist_name"] = "gaussian"
+    config["data"]["noise_dist_name"] = "gaussian"
+
+    # Fixed dimensionality: 10
+    config["data"]["n_dims"] = 10
+
+    # Defaults for training
+    config["optimisation"]["n_epochs"] = 250
+    config["optimisation"]["n_batch"] = 256
+    config["optimisation"]["patience"] = 50
+    config["optimisation"]["save_every_x_epochs"] = 10
+
+    config["architecture"]["network_type"] = "quadratic"
+    config["architecture"]["quadratic_constraint_type"] = "symmetric_pos_diag"
+    config["architecture"]["quadratic_head_use_linear_term"] = True
+
+    # Experiment settings
+    # We will grid-search over:
+    #   - KL targets: 10, 15, 20
+    #   - Training sample sizes: 50, 100, 300
+    KLs = [10, 15, 20]
+    sample_sizes = [50, 100, 300]
+
+    p1 = [["data", "data", "data", "optimisation"],
+          ["linear_combo_alphas", "initial_waymark_indices", "data_args", "n_batch"],
+          [
+              # Generate configs for all combinations of KL and sample size
+              [*get_poly_wmark_coefs(num=5, p=1.0),
+               {"n_samples": n, "n_dims": 10, "true_mutual_info": mi},
+               128]
+              for mi in KLs
+              for n in sample_sizes
+          ]
+          ]
+
+    generate_configs_for_gridsearch(config, "model", p1)
+
+
 def main():
     parser = ArgumentParser(description='Create configs for TRE',
                             formatter_class=ArgumentDefaultsHelpFormatter)
@@ -586,7 +627,7 @@ def main():
     make_gaussians_configs()
     make_mnist_configs()
     make_multiomniglot_configs()
-
+    make_gaussians_10d_configs()
 
 if __name__ == "__main__":
     main()

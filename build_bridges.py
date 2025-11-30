@@ -303,7 +303,8 @@ def pre_epoch_events(config, train_dp, val_dp, logger):
     if not config.shuffle_waymarks:
         batch_size, n_waymarks = config.n_batch, len(config.initial_waymark_indices)
         batch_size -= np.mod(batch_size, n_waymarks)
-        train_dp.batch_size = val_dp.batch_size = int(batch_size / n_waymarks)
+        per_waymark = max(1, int(batch_size / n_waymarks))
+        train_dp.batch_size = val_dp.batch_size = per_waymark
     logger.info("batch size is: {}".format(train_dp.batch_size))
 
     return lr, train_dp, val_dp

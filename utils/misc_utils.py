@@ -140,15 +140,37 @@ def cross_entropy_two_gaussians(A, B):
     return cross_entropy
 
 
-def kl_between_two_gaussians(A, B):
-    """D_kl(p_A, p_B) where p_A ~ N(0, A), p_B ~ N(0, B)"""
+def kl_between_two_gaussians(A, B, mean_A=None, mean_B=None):
+    """KL(p_A || p_B) for Gaussians with arbitrary means and covariances.
+
+    Args:
+        A: covariance matrix of p_A
+        B: covariance matrix of p_B
+        mean_A: mean vector of p_A (defaults to zeros)
+        mean_B: mean vector of p_B (defaults to zeros)
+    """
+    A = np.asarray(A)
+    B = np.asarray(B)
+    d = A.shape[0]
+
+    if mean_A is None:
+        mean_A = np.zeros(d)
+    if mean_B is None:
+        mean_B = np.zeros(d)
+
+    mean_A = np.asarray(mean_A)
+    mean_B = np.asarray(mean_B)
+
     trace_term = np.trace(np.linalg.solve(B, A))
-    const = -len(B)
+    const = -d
     B_log_abs_det = np.linalg.slogdet(B)[1]
     A_log_abs_det = np.linalg.slogdet(A)[1]
     diff_log_abs_det = B_log_abs_det - A_log_abs_det
 
-    kl = 0.5 * (trace_term + const + diff_log_abs_det)
+    mean_diff = mean_B - mean_A
+    quad_term = mean_diff.T @ np.linalg.solve(B, mean_diff)
+
+    kl = 0.5 * (trace_term + quad_term + const + diff_log_abs_det)
 
     return kl
 

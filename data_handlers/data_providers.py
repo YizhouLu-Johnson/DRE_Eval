@@ -297,7 +297,13 @@ def load_data_providers(dataset_name,
         data_source = data_handlers.MultiOmniglot(**data_args)
 
     elif dataset_name == 'gaussians':
-        data_source = data_handlers.GAUSSIANS(**data_args)
+        data_source = data_handlers.GAUSSIANS(seed=seed, **data_args)
+
+    elif dataset_name == 'gaussians_10d':
+        # Reuse GAUSSIANS class but enforce 10 dimensions
+        data_args = dict(data_args) if data_args is not None else {}
+        data_args.setdefault("n_dims", 10)
+        data_source = data_handlers.GAUSSIANS(seed=seed, **data_args)
 
     else:
         raise ValueError('Unknown dataset: {}'.format(dataset_name))

@@ -51,7 +51,8 @@ class TwoGaussians:
             self.N_p0 = data_p0.shape[0]
             self.N_p1 = data_p1.shape[0]
             
-    def __init__(self, n_samples, n_dims=10, mean_shift=2.0, cov_scale=1.0, seed=None):
+    def __init__(self, n_samples, n_dims=10, mean_shift=2.0, cov_scale=1.0,
+                 seed=None, mu0=None, mu1=None, cov0=None, cov1=None):
         """
         Initialize two Gaussian distributions P0 and P1.
         
@@ -68,22 +69,30 @@ class TwoGaussians:
         self.n_dims = n_dims
         self.n_samples = n_samples
         
-        # Define P0: N(0, I) - Standard Gaussian
-        self.mu0 = np.zeros(n_dims)
-        self.cov0 = np.eye(n_dims)
+        # Define P0: default N(0, I) unless custom parameters supplied
+        if mu0 is not None:
+            self.mu0 = np.asarray(mu0, dtype=np.float32)
+        else:
+            self.mu0 = np.zeros(n_dims, dtype=np.float32)
+        if cov0 is not None:
+            self.cov0 = np.asarray(cov0, dtype=np.float32)
+        else:
+            self.cov0 = np.eye(n_dims, dtype=np.float32)
         
-        # Define P1: N(mu1, Sigma1) - Shifted and scaled Gaussian
-        # Shift mean in first few dimensions
-        self.mu1 = np.zeros(n_dims)
-        self.mu1[:min(3, n_dims)] = mean_shift  # Shift first 3 dimensions
-        
-        # Scale covariance slightly differently
-        self.cov1 = cov_scale * np.eye(n_dims)
-        # Add some correlation structure
-        if n_dims >= 2:
-            for i in range(min(3, n_dims-1)):
-                self.cov1[i, i+1] = 0.3
-                self.cov1[i+1, i] = 0.3
+        # Define P1: default shifted/scaled Gaussian unless overridden
+        if mu1 is not None:
+            self.mu1 = np.asarray(mu1, dtype=np.float32)
+        else:
+            self.mu1 = np.zeros(n_dims, dtype=np.float32)
+            self.mu1[:min(3, n_dims)] = mean_shift  # Shift first 3 dimensions
+        if cov1 is not None:
+            self.cov1 = np.asarray(cov1, dtype=np.float32)
+        else:
+            self.cov1 = cov_scale * np.eye(n_dims, dtype=np.float32)
+            if n_dims >= 2:
+                for i in range(min(3, n_dims-1)):
+                    self.cov1[i, i+1] = 0.3
+                    self.cov1[i+1, i] = 0.3
         
         # Create distributions
         self.dist_p0 = multivariate_normal(mean=self.mu0, cov=self.cov0)
@@ -150,4 +159,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

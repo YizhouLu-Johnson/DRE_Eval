@@ -27,28 +27,57 @@ class GAUSSIANS:
             self.cov_matrix = cov_mat
             self.original_scale = 1.0
 
-    def __init__(self, n_samples, n_dims=80, true_mutual_info=None, mean=None, std=None, **kwargs):
+    def __init__(self, n_samples, n_dims=80, true_mutual_info=None, mean=None, std=None,
+                 numerator_mean=None, numerator_cov=None,
+                 denominator_mean=None, denominator_cov=None,
+                 seed=None, **kwargs):
 
         if (mean is not None) or (std is not None):
             assert (mean is not None) and (std is not None)
             assert true_mutual_info is None, "Can't specify mean/std AND true_mutual_info"
         else:
-            assert true_mutual_info is not None, "Must specify MI if mean+std are unspecified"
+            assert true_mutual_info is not None or numerator_cov is not None, \
+                "Must specify MI or custom parameters if mean+std are unspecified"
             # Set defaults when using true_mutual_info
             mean = 0.0
             std = 1.0
 
         self.n_dims = n_dims
-        self.means = np.ones(n_dims) * mean
+        base_mean = np.ones(n_dims) * mean
         self.variances = np.ones(n_dims) * std**2
 
-        if true_mutual_info is not None:
-            self.rho = self.get_rho_from_mi(true_mutual_info, n_dims)  # correlation coefficient
-            self.cov_matrix = block_diag(*[[[1, self.rho], [self.rho, 1]] for _ in range(n_dims // 2)])
+        # Numerator mean/covariance
+        if numerator_mean is not None:
+            numerator_mean = np.asarray(numerator_mean)
+            assert numerator_mean.shape == (n_dims,)
         else:
-            self.cov_matrix = np.diag(self.variances)
+            numerator_mean = base_mean
+        self.means = numerator_mean
 
-        self.denom_cov_matrix = np.diag(self.variances)
+        if numerator_cov is not None:
+            numerator_cov = np.asarray(numerator_cov)
+        elif true_mutual_info is not None:
+            self.rho = self.get_rho_from_mi(true_mutual_info, n_dims)  # correlation coefficient
+            numerator_cov = block_diag(*[[[1, self.rho], [self.rho, 1]] for _ in range(n_dims // 2)])
+        else:
+            numerator_cov = np.diag(self.variances)
+        self.cov_matrix = numerator_cov
+
+        # Denominator mean/covariance
+        if denominator_mean is not None:
+            denominator_mean = np.asarray(denominator_mean)
+            assert denominator_mean.shape == (n_dims,)
+        else:
+            denominator_mean = np.zeros(n_dims)
+        self.denom_means = denominator_mean
+
+        if denominator_cov is not None:
+            denominator_cov = np.asarray(denominator_cov)
+        else:
+            denominator_cov = np.diag(self.variances)
+        self.denom_cov_matrix = denominator_cov
+
+        self.rng = np.random.RandomState(seed) if seed is not None else np.random
 
         trn, val, tst = self.sample_data(n_samples), self.sample_data(n_samples), self.sample_data(n_samples)
 
@@ -65,14 +94,14 @@ class GAUSSIANS:
         return (1 - np.exp(-x)) ** 0.5  # correlation coefficient
 
     def sample_data(self, n_samples):
-        return self.sample_gaussian(n_samples, self.cov_matrix)
+        return self.sample_gaussian(n_samples, self.cov_matrix, self.means)
 
     def sample_denominator(self, n_samples):
-        return self.sample_gaussian(n_samples, self.denom_cov_matrix)
+        return self.sample_gaussian(n_samples, self.denom_cov_matrix, self.denom_means)
 
-    def sample_gaussian(self, n_samples, cov_matrix):
-        prod_of_marginals = multivariate_normal(mean=self.means, cov=cov_matrix)
-        return prod_of_marginals.rvs(n_samples)
+    def sample_gaussian(self, n_samples, cov_matrix, mean):
+        prod_of_marginals = multivariate_normal(mean=mean, cov=cov_matrix)
+        return prod_of_marginals.rvs(n_samples, random_state=self.rng)
 
     def numerator_log_prob(self, u):
         mvn = multivariate_normal(mean=self.means, cov=self.cov_matrix)
@@ -80,7 +109,7 @@ class GAUSSIANS:
         return log_probs
 
     def denominator_log_prob(self, u):
-        prod_of_marginals = multivariate_normal(mean=np.zeros(self.n_dims), cov=self.denom_cov_matrix)
+        prod_of_marginals = multivariate_normal(mean=self.denom_means, cov=self.denom_cov_matrix)
         return prod_of_marginals.logpdf(u)
 
     def empirical_mutual_info(self, samples=None):
@@ -89,6 +118,9 @@ class GAUSSIANS:
         return np.mean(self.numerator_log_prob(samples) - self.denominator_log_prob(samples))
 
     def determine_waymark_spacing(self, target_kl, logger=None):
+
+        if not hasattr(self, "rho"):
+            raise ValueError("Waymark spacing requires specifying true_mutual_info.")
 
         target_kl /= (self.n_dims / 2)  # target kl for correlated bivariate distributions
         covs = [self.rho]

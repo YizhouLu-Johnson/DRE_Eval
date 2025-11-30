@@ -23,7 +23,7 @@ class BDREModel:
     Uses a neural network to classify samples from P1 vs P0.
     """
     
-    def __init__(self, input_dim, hidden_dims=[128, 128], activation='relu'):
+    def __init__(self, input_dim, hidden_dims=[128, 128], activation='relu', reg_coef=0.0, dropout_rate=0.0):
         """
         Initialize BDRE model.
         
@@ -35,6 +35,8 @@ class BDREModel:
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
         self.activation = activation
+        self.reg_coef = float(reg_coef)
+        self.dropout_rate = float(dropout_rate)
         
     def build_network(self, x, is_training=True):
         """
@@ -52,9 +54,11 @@ class BDREModel:
             
             # Hidden layers
             for i, hidden_dim in enumerate(self.hidden_dims):
+                kernel_reg = tf.keras.regularizers.l2(self.reg_coef) if self.reg_coef > 0.0 else None
                 h = tf.keras.layers.Dense(
                     hidden_dim, 
                     activation=None,
+                    kernel_regularizer=kernel_reg,
                     kernel_initializer=tf.keras.initializers.glorot_normal(),
                     name=f'hidden_{i}'
                 )(h)
@@ -70,12 +74,15 @@ class BDREModel:
                     raise ValueError(f"Unknown activation: {self.activation}")
                 
                 # Optional: Add dropout for regularization
-                # h = tf.layers.dropout(h, rate=0.1, training=is_training)
+                if self.dropout_rate > 0.0:
+                    h = tf.keras.layers.Dropout(self.dropout_rate)(h, training=is_training)
             
             # Output layer (no activation - raw logits)
+            kernel_reg = tf.keras.regularizers.l2(self.reg_coef) if self.reg_coef > 0.0 else None
             logits = tf.keras.layers.Dense(
                 1,
                 activation=None,
+                kernel_regularizer=kernel_reg,
                 kernel_initializer=tf.keras.initializers.glorot_normal(),
                 name='output'
             )(h)
@@ -107,7 +114,9 @@ def build_bdre_graph(config):
     model = BDREModel(
         input_dim=config['input_dim'],
         hidden_dims=config['hidden_dims'],
-        activation=config['activation']
+        activation=config.get('activation', 'relu'),
+        reg_coef=config.get('reg_coef', 0.0),
+        dropout_rate=config.get('dropout_rate', 0.0)
     )
     
     # Get log density ratio estimates
@@ -183,7 +192,7 @@ def train_bdre(config, dataset, save_dir):
     saver = tf.compat.v1.train.Saver(max_to_keep=5)
     
     # Training loop
-    n_batches = config['n_train_samples'] // config['batch_size']
+    n_batches = max(1, config['n_train_samples'] // config['batch_size'])
     best_val_loss = np.inf
     patience_counter = 0
     
@@ -281,7 +290,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--n_epochs', type=int, default=200)
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--patience', type=int, default=20)
+    parser.add_argument('--patience', type=int, default=10)
     parser.add_argument('--activation', type=str, default='relu')
     parser.add_argument('--mean_shift', type=float, default=2.0)
     parser.add_argument('--seed', type=int, default=42)
@@ -336,4 +345,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

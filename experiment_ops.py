@@ -397,10 +397,11 @@ def plot_per_ratio_and_datapoint_diagnostics(sess,
         diag_save_dir = os.path.join(save_dir, "{}_diagnostics/{}/".format(name, split))
         os.makedirs(diag_save_dir, exist_ok=True)
 
+        per_ratio_batch = max(1, config.n_batch // num_ratios)
         op_per_ratio_and_datapoint = tf_batched_operation(sess=sess,
                                                           ops=metric_op,
                                                           n_samples=len(data),
-                                                          batch_size=config.n_batch // num_ratios,
+                                                          batch_size=per_ratio_batch,
                                                           data_pholder=data_pholder,
                                                           data=data,
                                                           const_feed_dict=feed_dict,

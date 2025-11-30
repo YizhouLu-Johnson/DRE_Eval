@@ -23,13 +23,19 @@ def make_improved_tdre_configs():
     
     config = make_base_config()
     
-    # Dataset configuration - SAME as before
+    # Dataset configuration - DISTINCT distributions with KL ≈ 11.3 nats
+    # P (numerator): mean = 1.5*ones, cov = I
+    # Q (denominator): mean = 0, cov = 2*I
+    n_dims = 10
     config["data"]["dataset_name"] = "gaussians"
-    config["data"]["n_dims"] = 10
+    config["data"]["n_dims"] = n_dims
     config["data"]["data_args"] = {
         "n_samples": 10000,
-        "n_dims": 10,
-        "true_mutual_info": 5.0
+        "n_dims": n_dims,
+        "numerator_mean": [1.5] * n_dims,
+        "numerator_cov": [[1.0 if i == j else 0.0 for j in range(n_dims)] for i in range(n_dims)],
+        "denominator_mean": [0.0] * n_dims,
+        "denominator_cov": [[2.0 if i == j else 0.0 for j in range(n_dims)] for i in range(n_dims)]
     }
     config["data"]["data_dist_name"] = "gaussian"
     config["data"]["noise_dist_name"] = "gaussian"
@@ -82,6 +88,10 @@ def make_improved_tdre_configs():
         print()
     
     print(f"Generated {len(configs_to_generate)} improved TDRE configurations")
+    print(f"\nDistribution setup:")
+    print(f"  P (numerator): mean=1.5*ones, cov=I")
+    print(f"  Q (denominator): mean=0*ones, cov=2*I")
+    print(f"  Analytical KL(P||Q) ≈ 11.3 nats (well-separated distributions!)")
     print("\nTo train improved TDRE models, run:")
     print("  python build_bridges.py --config_path=gaussians/improved/0  # Best (8 waymarks)")
     print("  python build_bridges.py --config_path=gaussians/improved/1  # Good (6 waymarks)")

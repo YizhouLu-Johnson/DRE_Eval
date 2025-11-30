@@ -1,3 +1,0 @@
-model_checkpoint_path: "bdre_model_final.ckpt"
-all_model_checkpoint_paths: "bdre_model.ckpt"
-all_model_checkpoint_paths: "bdre_model_final.ckpt"
