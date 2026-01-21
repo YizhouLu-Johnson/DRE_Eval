@@ -152,6 +152,13 @@ def build_bdre_graph(config):
     # Optimizer
     optimizer = tf.compat.v1.train.AdamOptimizer(graph['learning_rate'])
     graph['train_op'] = optimizer.minimize(graph['loss'])
+
+    # Clip gradients by global norm (e.g., 5.0). You can tune this value if needed.
+    # trainable_vars = tf.compat.v1.trainable_variables()
+    # grads = tf.gradients(graph['loss'], trainable_vars)
+    # clipped_grads, _ = tf.clip_by_global_norm(grads, 1)
+    # graph['train_op'] = optimizer.apply_gradients(zip(clipped_grads, trainable_vars))
+    
     
     return graph, model
 

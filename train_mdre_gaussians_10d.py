@@ -215,7 +215,7 @@ def parse_args():
     parser.add_argument("--grad_clip", type=float, default=5.0)
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Extra offset added to TDRE data_seed.")
-    parser.add_argument("--save_root", type=str, default="mdre_gaussians_10d",
+    parser.add_argument("--save_root", type=str, default="mdre_pstar_p0_kl80",
                         help="Subdirectory under saved_models/")
     parser.add_argument("--device", type=str, default="cpu")
     return parser.parse_args()

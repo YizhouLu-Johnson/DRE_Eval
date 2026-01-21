@@ -51,6 +51,7 @@ def build_single_config(base_config,
     denominator_mean = [0.0] * n_dims
     covariance = _identity_matrix(n_dims)
 
+    #cfg["data"]["dataset_name"] = "gaussians_10d"
     cfg["data"]["dataset_name"] = "gaussians_10d"
     cfg["data"]["data_seed"] = int(seed)
     cfg["data"]["noise_dist_name"] = "gaussian"
@@ -109,13 +110,19 @@ def generate_configs(target_kls: Iterable[float],
                      waymark_breakpoints=None,
                      waymark_counts=None,
                      epoch_breakpoints=None,
-                     epoch_values=None):
+                     epoch_values=None,
+                     save_root=None,
+                     config_dir_name=None):
     """Create configs for every (KL, sample_size, trial)."""
 
     make_configs.time_id = time_id
     base_cfg = make_base_config()
     base_cfg["data"]["dataset_name"] = "gaussians_10d"
     base_cfg["data"]["n_dims"] = 10
+    if config_dir_name:
+        base_cfg["data"]["config_dir_name"] = config_dir_name
+    if save_root:
+        base_cfg["data"]["save_dir_root"] = save_root
 
     configs = []
     idx = 0
@@ -151,8 +158,11 @@ def parse_args():
     parser.add_argument("--target_kls", type=float, nargs="+",
                         default=[20.0],
                         help="Target analytic KL values (nats).")
+    # parser.add_argument("--sample_sizes", type=int, nargs="+",
+    #                     default=[10, 100, 250, 500, 1000, 1500, 2000, 3000],
+    #                     help="Training sample sizes per trial.")
     parser.add_argument("--sample_sizes", type=int, nargs="+",
-                        default=[10, 100, 250, 500, 1000, 1500, 2000, 3000],
+                        default=[3000],
                         help="Training sample sizes per trial.")
     parser.add_argument("--n_trials", type=int, default=20,
                         help="Number of independent configs per (KL, sample_size).")
@@ -168,6 +178,10 @@ def parse_args():
                         help="Seed offset used to vary dataset sampling.")
     parser.add_argument("--time_id", type=str, default=None,
                         help="Time identifier used in config/save directories.")
+    parser.add_argument("--save_root", type=str, default="tre_gaussians_10d_kl20",
+                        help="Subdirectory under saved_models/ for TDRE runs.")
+    parser.add_argument("--config_dir_name", type=str, default="gaussians_10d_kl20",
+                        help="Optional configs/ subdirectory (defaults to dataset_name).")
     return parser.parse_args()
 
 
@@ -187,7 +201,9 @@ def main():
                      waymark_breakpoints=args.waymark_breakpoints,
                      waymark_counts=args.waymark_counts,
                      epoch_breakpoints=args.epoch_breakpoints,
-                     epoch_values=args.epoch_values)
+                     epoch_values=args.epoch_values,
+                     save_root=args.save_root,
+                     config_dir_name=args.config_dir_name)
 
 
 if __name__ == "__main__":

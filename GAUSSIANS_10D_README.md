@@ -35,7 +35,11 @@ python make_gaussians_10d_configs.py \
 ```
 
 Adjust `--time_id` to any string you prefer. This identifier gets embedded in
-the save paths under `saved_models/gaussians_10d/<time_id>_<idx>/`.
+the save paths under `saved_models/tre_gaussians_10d/<time_id>_<idx>/`
+(override via `--save_root` if you want the legacy name).
+For the KL-sweep experiment (plotting error vs. target KL), simply pass
+`--target_kls 5 10 20 30 40` (or any list you like) when running the command
+above so the generator emits configs for each desired KL gap.
 
 2. Train TDRE models
 --------------------
@@ -54,7 +58,7 @@ done
 ```
 
 Each run writes checkpoints/metrics under
-`saved_models/gaussians_10d/20251124-0137_<idx>/`.
+`saved_models/tre_gaussians_10d/20251124-0137_<idx>/`.
 
 3. Train BDRE models
 --------------------
@@ -108,7 +112,25 @@ for cfg in configs/gaussians_10d/model/*.json; do
 done
 ```
 
-6. Evaluate & Plot
+6. Train MDRE (Multinomial Density Ratio Estimation) models
+----------------------------------------------------------
+
+The MDRE classifier jointly discriminates numerator, denominator, and all
+waymark mixtures with a multinomial logistic head. We recover the log density
+ratio by subtracting the logits for the first two classes. Training uses the
+exact same cached samples as the other estimators and produces checkpoints under
+`saved_models/mdre_gaussians_10d/<time_id>_<idx>/`.
+
+```bash
+cd /Users/johnstarlu/Desktop/CMU/Research/TRE__Code/tre_code
+for cfg in configs/gaussians_10d/model/*.json; do
+    idx=$(basename "${cfg%.json}")
+    echo "Training MDRE config ${idx}"
+    python train_mdre_gaussians_10d.py --config_path="gaussians_10d/model/${idx}"
+done
+```
+
+7. Evaluate & Plot
 ------------------
 
 After all trainings finish, aggregate the KL estimates and draw the curve of
@@ -118,10 +140,11 @@ contrasts multiple evaluation batch sizes if desired.
 
 ```bash
 python evaluate_gaussians_10d.py \
-    --tdre_model_base gaussians_10d/20251124-0137 \
+    --tdre_model_base tre_gaussians_10d/20251124-0137 \
     --bdre_model_base bdre_gaussians_10d/20251124-0137 \
     --dv_model_base dv_gaussians_10d/20251124-0137 \
     --nwj_model_base nwj_gaussians_10d/20251124-0137 \
+    --mdre_model_base mdre_gaussians_10d/20251124-0137 \
     --eval_sizes 10 100 1000 \
     --n_eval_trials 10 \
     --sample_sizes 50 100 300 500 1000 1500 2000 \
@@ -133,7 +156,7 @@ python evaluate_gaussians_10d.py \
     --save_summary results/gauss10d/eval_summary.txt
 ```
 
-- `--tdre_model_base` / `--bdre_model_base` / `--dv_model_base` / `--nwj_model_base` select directories matching
+- `--tdre_model_base` / `--bdre_model_base` / `--dv_model_base` / `--nwj_model_base` / `--mdre_model_base` select directories matching
   `saved_models/<dataset>/<time_id>_*`. Drop any you didn’t train.
 - `--eval_sizes` lets you compare evaluation sample sizes (e.g. 10 vs 100 vs 1000).
 - The script prints per-model relative errors, averages them per
@@ -141,6 +164,34 @@ python evaluate_gaussians_10d.py \
   (n ≥ 1000), and dumps a text summary (`eval_summary.txt`) with all settings.
 
 Results appear on screen and can be exported via Matplotlib if needed.
+
+8. KL Sweep Plot (relative error vs. true KL)
+---------------------------------------------
+
+After training models for multiple KL targets (e.g. 5/10/20/30/40) you can
+generate the additional plot requested—x-axis = analytic KL, y-axis = relative
+error at a fixed training sample size and evaluation batch size (M = 1000 by
+default):
+
+```bash
+python evaluate_gaussians_kl_sweep.py \
+    --tdre_model_base tre_gaussians_10d/20251124-0137 \
+    --bdre_model_base bdre_gaussians_10d/20251124-0137 \
+    --dv_model_base dv_gaussians_10d/20251124-0137 \
+    --nwj_model_base nwj_gaussians_10d/20251124-0137 \
+    --mdre_model_base mdre_gaussians_10d/20251124-0137 \
+    --target_kls 5 10 20 30 40 \
+    --sample_size_focus 1000 \
+    --eval_size 1000 \
+    --save_plot results/gauss10d/kl_sweep.png \
+    --save_plot_pdf results/gauss10d/kl_sweep.pdf \
+    --save_summary results/gauss10d/kl_sweep_summary.txt
+```
+
+Adjust `--sample_size_focus` if you want to analyze a different training sample
+count; it must match one of the `--sample_sizes` provided during config
+generation. The script shares the same cached validation data with the main
+evaluation file so all estimators are compared on identical evaluation batches.
 
 Notes
 -----

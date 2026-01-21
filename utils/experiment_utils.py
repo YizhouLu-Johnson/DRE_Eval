@@ -158,7 +158,7 @@ def load_data_providers_and_update_conf(config, include_test=False, dataset_name
     config.update({"n_val_samples": int(val_dp.n_samples)})
     config.update({"train_data_stds": np.std(train_dp.data, axis=0)})
     config.update({"train_data_min_max": [train_dp.data.min(), train_dp.data.max()]})
-    print("n_train, n_val: {}, {}".format(train_dp.n_samples, val_dp.n_samples))
+    # print("n_train, n_val: {}, {}".format(train_dp.n_samples, val_dp.n_samples))
 
     if hasattr(train_dp.source, "cov_mat"):
         config.update({"cov_mat": train_dp.source.cov_mat})

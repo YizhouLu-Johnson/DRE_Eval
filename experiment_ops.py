@@ -119,6 +119,14 @@ def build_noise_dist(name, data, config, event_shape=None, flow_training_bool=No
                                                         scale=gaussian_stds),
                                              reinterpreted_batch_ndims=event_dims_rank)
 
+    elif "dirichlet" in name:
+        concentration = config.get("noise_dist_dirichlet_concentration")
+        if concentration is None:
+            raise ValueError("Dirichlet noise distribution requires 'noise_dist_dirichlet_concentration'.")
+        concentration = tf.convert_to_tensor(concentration, dtype=tf.float32)
+        with tf.compat.v1.variable_scope("noise_dist"):
+            noise_dist = tfd.Dirichlet(concentration=concentration)
+
     elif name == "flow":
         noise_dist, _ = build_flow(config, data, flow_training_bool=flow_training_bool)
 
@@ -135,6 +143,12 @@ def build_data_dist(name, conf, data=None, correlation_coefficient=None):
             data_dist = build_blockwise_correlated_gaussians(conf.n_dims, correlation_coefficient)
         elif name == "flow":
             data_dist, _ = build_flow(conf, data)
+        elif name == "dirichlet":
+            concentration = conf.data_args.get("numerator_concentration")
+            if concentration is None:
+                raise ValueError("Dirichlet data distribution requires 'numerator_concentration'.")
+            concentration = tf.convert_to_tensor(concentration, dtype=tf.float32)
+            data_dist = tfd.Dirichlet(concentration=concentration)
         else:
             raise ValueError("name of target distribution can only be 'gaussian' or 'flow'."
                              " '{}' is not a valid option.".format(name))

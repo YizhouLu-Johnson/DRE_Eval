@@ -21,6 +21,17 @@ from train_mdre_gaussians_10d import MDRENet
 from utils.experiment_utils import project_root, load_data_providers_and_update_conf
 from utils.misc_utils import AttrDict
 
+# TSM imports
+try:
+    from train_tsm_10d_tailored import (
+        TimeScoreNetwork,
+        compute_density_ratios,
+    )
+    TSM_AVAILABLE = True
+except ImportError:
+    TSM_AVAILABLE = False
+    print("Warning: TSM evaluation not available. Install PyTorch to enable.")
+
 
 def _load_saved_config(model_dir):
     cfg_path = os.path.join(project_root, "saved_models", model_dir, "config.json")
@@ -194,7 +205,10 @@ def evaluate_dv_models(model_dirs, eval_size, n_eval_trials, val_cache):
 
         dv_config = config.training_config
         model = DVNet(
-            dv_config["input_dim"], dv_config["hidden_dims"], dv_config["activation"]
+            dv_config["input_dim"],
+            dv_config["hidden_dims"],
+            dv_config["activation"],
+            dropout_rate=dv_config.get("dropout_rate", 0.0),
         )
         state_path = os.path.join(full_dir, "dv_model.pt")
         if not os.path.exists(state_path):
@@ -386,6 +400,87 @@ def evaluate_mdre_models(model_dirs, eval_size, n_eval_trials, val_cache):
     return per_model, summary, val_cache
 
 
+def evaluate_tsm_models(model_dirs, eval_size, n_eval_trials, val_cache):
+    """Evaluate TSM (Time Score Matching) models."""
+    if not TSM_AVAILABLE:
+        print("TSM evaluation skipped: PyTorch not available")
+        return [], {}, val_cache
+    
+    grouped = defaultdict(list)
+    per_model = []
+
+    for model_dir in sorted(model_dirs):
+        full_dir = os.path.join(project_root, "saved_models", model_dir)
+        stub = os.path.basename(model_dir)
+        
+        # Load TSM config
+        cfg_path = os.path.join(full_dir, "config.json")
+        with open(cfg_path, "r") as f:
+            tsm_cfg = json.load(f)
+        
+        # Get model architecture params from training_config
+        training_cfg = tsm_cfg.get("training_config", {})
+        n_dims = int(training_cfg.get("input_dim", tsm_cfg.get("data_args", {}).get("n_dims", 10)))
+        hidden_dim = int(training_cfg.get("hidden_dim", 256))
+        n_layers = int(training_cfg.get("n_layers", 3))
+        
+        # Get true KL
+        data_args = tsm_cfg.get("data_args", {})
+        true_kl = float(
+            data_args.get("analytic_kl",
+                data_args.get("target_kl",
+                    data_args.get("true_mutual_info",
+                        tsm_cfg.get("true_kl", 10.0))))
+        )
+        n_samples = int(data_args.get("n_samples", 3000))
+        
+        # Create model
+        model = TimeScoreNetwork(n_dims, hidden_dim, n_layers)
+        
+        # Load checkpoint
+        model_path = os.path.join(full_dir, "tsm_model_best.pt")
+        if not os.path.exists(model_path):
+            print(f"Warning: Model not found at {model_path}, skipping")
+            continue
+        
+        checkpoint = torch.load(model_path, map_location="cpu")
+        if "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            model.load_state_dict(checkpoint)
+        model.eval()
+        
+        # Get validation data
+        config = AttrDict(tsm_cfg)
+        if stub in val_cache:
+            entry = val_cache[stub]
+        else:
+            entry = _get_val_data(config, val_cache, stub)
+        val_data = entry["data"]
+        
+        errors = []
+        for _ in range(n_eval_trials):
+            n_eval = min(eval_size, val_data.shape[0])
+            idx = np.random.choice(val_data.shape[0], size=n_eval, replace=False)
+            batch = val_data[idx]
+            
+            log_ratios, _ = compute_density_ratios(model, batch)
+            # TSM gives log(p/q), negate to get log(q/p) for KL(q||p)
+            est_kl = float(np.mean(log_ratios))
+            rel_error = abs(est_kl - true_kl) / abs(true_kl)
+            errors.append(rel_error)
+        
+        avg_error = float(np.mean(errors))
+        grouped[(true_kl, n_samples)].append(avg_error)
+        per_model.append((model_dir, true_kl, n_samples, avg_error))
+    
+    summary = {}
+    for (true_kl, n_samples), errs in grouped.items():
+        summary.setdefault(true_kl, {})[n_samples] = float(np.mean(errs))
+    
+    return per_model, summary, val_cache
+
+
 def plot_results(result_dict, kl_targets, sample_sizes,
                  save_path=None, zoom_save_path=None,
                  save_path_pdf=None, zoom_save_path_pdf=None):
@@ -403,12 +498,13 @@ def plot_results(result_dict, kl_targets, sample_sizes,
             "dv": "#ff7f0e",
             "nwj": "#d62728",
             "mdre": "#9467bd",
+            "tsm": "#17becf",  # cyan
         }
         linestyles = {"tdre": "--", "bdre": "-"}
         eval_sizes_sorted = sorted(
             {e for method in result_dict.values() for e in method.keys()}
         )
-        marker_cycle = ["o", "s", "^", "D", "v"]
+        marker_cycle = ["o", "o", "o", "o", "o"]
         marker_map = {
             eval_size: marker_cycle[i % len(marker_cycle)]
             for i, eval_size in enumerate(eval_sizes_sorted)
@@ -432,7 +528,7 @@ def plot_results(result_dict, kl_targets, sample_sizes,
 
         plt.xlabel("Training sample size")
         plt.ylabel("Relative KL error (avg)")
-        plt.title(f"TDRE / BDRE / DV / NWJ on 10D Gaussians{title_suffix}")
+        plt.title(f"10D Gaussians{title_suffix} (KL={kl_targets})")
         plt.grid(alpha=0.3)
         plt.legend(fontsize=8)
         plt.tight_layout()
@@ -470,7 +566,7 @@ def plot_results(result_dict, kl_targets, sample_sizes,
 
         plt.figure(figsize=(9, 4))
         eval_sizes_sorted = sorted(summaries.keys())
-        marker_cycle = ["o", "s", "^", "D", "v", "x"]
+        marker_cycle = ["o", "o", "o", "o", "o", "o"]
 
         for i, eval_size in enumerate(eval_sizes_sorted):
             for kl in kl_targets:
@@ -491,7 +587,7 @@ def plot_results(result_dict, kl_targets, sample_sizes,
 
         plt.xlabel("Training sample size")
         plt.ylabel("Relative KL error (avg)")
-        plt.title(f"{method.upper()} (per eval_size) on 10D Gaussians")
+        plt.title(f"{method.upper()} on 10D Gaussians (KL=20)")
         plt.grid(alpha=0.3)
         plt.legend(fontsize=8)
         plt.tight_layout()
@@ -609,6 +705,7 @@ def parse_args():
         type=int,
         nargs="+",
         default=[10, 100, 250, 500, 1000, 1500, 2000, 3000],
+        # default=[3000],
         help="Training sample sizes to plot on x-axis.",
     )
     parser.add_argument(
@@ -621,31 +718,31 @@ def parse_args():
     parser.add_argument(
         "--save_plot",
         type=str,
-        default="results/gauss10d/tdre_bdre_dv_nwj.png",
+        default="results/gauss10d_kl20/tdre_bdre_dv_nwj.png",
         help="Path (relative to repo root) to save the primary plot.",
     )
     parser.add_argument(
         "--save_plot_zoom",
         type=str,
-        default="results/gauss10d/tdre_bdre_dv_nwj_zoom.png",
+        default="results/gauss10d_kl20/tdre_bdre_dv_nwj_zoom.png",
         help="Where to save the zoomed plot (n>=1000). Leave empty to skip.",
     )
     parser.add_argument(
         "--save_plot_pdf",
         type=str,
-        default="results/gauss10d/tdre_bdre_dv_nwj.pdf",
+        default="results/gauss10d_kl20/tdre_bdre_dv_nwj.pdf",
         help="Path to save the primary plot as PDF.",
     )
     parser.add_argument(
         "--save_plot_zoom_pdf",
         type=str,
-        default="results/gauss10d/tdre_bdre_dv_nwj_zoom.pdf",
+        default="results/gauss10d_kl20/tdre_bdre_dv_nwj_zoom.pdf",
         help="Path to save the zoomed plot as PDF.",
     )
     parser.add_argument(
         "--save_summary",
         type=str,
-        default="results/gauss10d/eval_summary.txt",
+        default="results/gauss10d_kl20/eval_summary.txt",
         help="Path for the textual summary (relative to repo root).",
     )
     parser.add_argument(
@@ -672,6 +769,18 @@ def parse_args():
         default=None,
         help="MDRE dataset/time_id prefix e.g. mdre_gaussians_10d/20250101-1200",
     )
+    parser.add_argument(
+        "--tsm_model_dirs",
+        nargs="+",
+        default=None,
+        help="Explicit TSM dirs (relative to saved_models/)",
+    )
+    parser.add_argument(
+        "--tsm_model_base",
+        type=str,
+        default=None,
+        help="TSM dataset/time_id prefix e.g. tsm_gaussians_10d/kl10",
+    )
     return parser.parse_args()
 
 
@@ -685,6 +794,7 @@ def main():
     dv_dirs = _collect_model_dirs(args.dv_model_dirs, args.dv_model_base)
     nwj_dirs = _collect_model_dirs(args.nwj_model_dirs, args.nwj_model_base)
     mdre_dirs = _collect_model_dirs(args.mdre_model_dirs, args.mdre_model_base)
+    tsm_dirs = _collect_model_dirs(args.tsm_model_dirs, args.tsm_model_base)
 
     if (
         not tdre_dirs
@@ -692,9 +802,10 @@ def main():
         and not dv_dirs
         and not nwj_dirs
         and not mdre_dirs
+        and not tsm_dirs
     ):
         raise ValueError(
-            "Provide TDRE, BDRE, DV, NWJ, and/or MDRE model directories to evaluate."
+            "Provide TDRE, BDRE, DV, NWJ, MDRE, and/or TSM model directories to evaluate."
         )
 
     eval_sizes = args.eval_sizes if args.eval_sizes else [args.eval_size]
@@ -749,6 +860,16 @@ def main():
             )
             results.setdefault("mdre", {})[eval_size] = summary
             print("MDRE per-model results (dir, true_KL, n_samples, rel_err):")
+            for model_dir, kl, n_samples, err in per_model:
+                print(
+                    f"  {model_dir}: KL={kl:.2f}, n={n_samples}, rel_err={err:.4f}"
+                )
+        if tsm_dirs:
+            per_model, summary, val_cache = evaluate_tsm_models(
+                tsm_dirs, eval_size, args.n_eval_trials, val_cache
+            )
+            results.setdefault("tsm", {})[eval_size] = summary
+            print("TSM per-model results (dir, true_KL, n_samples, rel_err):")
             for model_dir, kl, n_samples, err in per_model:
                 print(
                     f"  {model_dir}: KL={kl:.2f}, n={n_samples}, rel_err={err:.4f}"

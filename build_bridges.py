@@ -252,8 +252,8 @@ def train(g, sess, train_dp, val_dp, saver1, saver2, config):
 
         config.n_epochs_until_stop -= 1
 
-    logger.info("Finished training model!")
-    logger.info("Ratios were estimated for the following datasets: {}".format(config.initial_waymark_indices))
+    # logger.info("Finished training model!")
+    # logger.info("Ratios were estimated for the following datasets: {}".format(config.initial_waymark_indices))
 
     # restore and eval best model found via early stopping
     saver2.restore(sess, tf.train.latest_checkpoint(model_dir))
@@ -282,8 +282,9 @@ def get_feed_dict(g, sess, dp, batch, config, lr=-1, j=-1, train=True):
 
     if train and j == 0:
         if "noise_multipliers" in g.waymark_construction_results:
-            print("waymark coefficients are: ",
-                  sess.run(g.waymark_construction_results.noise_multipliers, feed_dict=feed_dict))
+            # print("waymark coefficients are: ",
+            #       sess.run(g.waymark_construction_results.noise_multipliers, feed_dict=feed_dict))
+            pass
 
     if train and config.epoch_idx == 0 and j == 0:
         plot_waymark_diagnostic_figs(sess, g, waymark_idxs, bridge_idxs, feed_dict, dp, config)
@@ -298,14 +299,14 @@ def pre_epoch_events(config, train_dp, val_dp, logger):
 
     # adjust learning rate
     lr = 0.5 * config.energy_lr * (1 + np.cos((config.epoch_idx / config.n_epochs) * np.pi))
-    logger.info("LEARNING RATE IS NOW {}.".format(lr))
+    # logger.info("LEARNING RATE IS NOW {}.".format(lr))
 
     if not config.shuffle_waymarks:
         batch_size, n_waymarks = config.n_batch, len(config.initial_waymark_indices)
         batch_size -= np.mod(batch_size, n_waymarks)
         per_waymark = max(1, int(batch_size / n_waymarks))
         train_dp.batch_size = val_dp.batch_size = per_waymark
-    logger.info("batch size is: {}".format(train_dp.batch_size))
+    # logger.info("batch size is: {}".format(train_dp.batch_size))
 
     return lr, train_dp, val_dp
 
@@ -319,7 +320,7 @@ def post_epoch_events(g, sess, train_dp, val_dp, saver1, saver2, model_dir, conf
     save_path = model_dir + "{}.ckpt".format(config.epoch_idx)
     stop, is_best_epoch_so_far = check_early_stopping(saver2, sess, save_path, config)
     if is_best_epoch_so_far:
-        logger.info(" " * 60 + "saving results from epoch {} as best".format(config.epoch_idx))
+        # logger.info(" " * 60 + "saving results from epoch {} as best".format(config.epoch_idx))
         save_best_results(config)
 
     save_path = os.path.join(model_dir, "every_x_epochs/{}.ckpt".format(config.epoch_idx))
@@ -380,9 +381,9 @@ def eval_model(g, sess, train_dp, val_dp, config, use_train_data=False, save=Tru
 
     epoch = config.epoch_idx if save else "best"
     logger = logging.getLogger("tf")
-    logger.info("------------------------------")
-    logger.info("Epoch {}".format(epoch))
-    logger.info("------------------------------")
+    # logger.info("------------------------------")
+    # logger.info("Epoch {}".format(epoch))
+    # logger.info("------------------------------")
 
     if use_train_data:
         eval_train_or_val_set(g, sess, train_dp, save, logger, "train", config)
@@ -421,11 +422,10 @@ def eval_train_or_val_set(g, sess, dp, save, logger, which_set, config):
                  spec_norms=spec_norms
                  )
 
-    logger.info("{} tre loss {:0.3f}".format(which_set, np.mean(tre_loss)))
-    logger.info("{} total neg energies  {:0.3f}".format(which_set, np.sum(energy)))
-
-    logger.info("\n{} tre losses {}".format(which_set, tre_loss))
-    logger.info("\n{} neg energies {}".format(which_set, energy))
+    # logger.info("{} tre loss {:0.3f}".format(which_set, np.mean(tre_loss)))
+    # logger.info("{} total neg energies  {:0.3f}".format(which_set, np.sum(energy)))
+    # logger.info("\n{} tre losses {}".format(which_set, tre_loss))
+    # logger.info("\n{} neg energies {}".format(which_set, energy))
 
     if spec_norms.size > 0:
         logger.info("spec norms: {}".format(spec_norms))
@@ -774,9 +774,9 @@ def main():
         else:
             train(graph, sess, train_dp, val_dp, saver1, saver2, config)
 
-        logger.info("-------------------------------------------------")
-        logger.info("             Completed training                  ")
-        logger.info("-------------------------------------------------")
+        # logger.info("-------------------------------------------------")
+        # logger.info("             Completed training                  ")
+        # logger.info("-------------------------------------------------")
 
     save_config(config)
     os.makedirs(config.save_dir, exist_ok=True)

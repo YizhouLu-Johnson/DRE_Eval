@@ -508,8 +508,9 @@ def update_waymark_method_settings(c):
 def update_config(c, i):
 
     dataset_name = c["data"]["dataset_name"]
-    c["data"]["fig_dir_name"] = "{}figs/{}/{}/".format(project_root, dataset_name, time_id)
-    c["data"]["save_dir"] = project_root + "{}/{}/{}_{}/".format("saved_models", dataset_name, time_id, i)
+    save_root = c["data"].get("save_dir_root", dataset_name)
+    c["data"]["fig_dir_name"] = "{}figs/{}/{}/".format(project_root, save_root, time_id)
+    c["data"]["save_dir"] = project_root + "{}/{}/{}_{}/".format("saved_models", save_root, time_id, i)
 
     p_exc = c["data"]["data_args"].get("percent_excluded", None)
     if p_exc is not None:
@@ -565,7 +566,8 @@ def get_symmetric_poly_noise_scales(n, p, mini=None, drop_first=False):
 def save_config(config, name, i):
     update_config(config, i)
     check_valid_config(config)
-    save_dir = project_root + 'configs/{}/{}/'.format(config["data"]["dataset_name"], name)
+    config_dir = config["data"].get("config_dir_name", config["data"]["dataset_name"])
+    save_dir = project_root + 'configs/{}/{}/'.format(config_dir, name)
     if i == 0:
         rmtree(save_dir, ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)

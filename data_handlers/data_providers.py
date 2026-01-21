@@ -305,6 +305,11 @@ def load_data_providers(dataset_name,
         data_args.setdefault("n_dims", 10)
         data_source = data_handlers.GAUSSIANS(seed=seed, **data_args)
 
+    elif dataset_name == 'dirichlet_10d':
+        data_args = dict(data_args) if data_args is not None else {}
+        data_args.setdefault("n_dims", 10)
+        data_source = data_handlers.DIRICHLET(seed=seed, **data_args)
+
     else:
         raise ValueError('Unknown dataset: {}'.format(dataset_name))
 

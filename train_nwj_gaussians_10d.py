@@ -1,7 +1,7 @@
 # /Users/johnstarlu/Desktop/CMU/Research/TRE__Code/tre_code/train_nwj_gaussians_10d.py
 
 """
-Train Nguyen–Wainwright–Jordan (NWJ) estimators on the gaussians_10d configs.
+Train Nguyen–Wainwright–Jordan (NWJ) estimators on the gaussians_10d or dirichlet_10d configs.
 
 This mirrors train_dv_gaussians_10d.py, but uses the NWJ f-divergence
 variational lower bound for KL:
@@ -30,7 +30,14 @@ import torch.nn as nn
 
 from __init__ import project_root
 from data_handlers.gaussians import GAUSSIANS
+from data_handlers.dirichlet import DIRICHLET
 from data_handlers.two_gaussians import kl_between_gaussians_with_mean
+from utils.distribution_utils import (
+    DIRICHLET as DIRICHLET_FAMILY,
+    GAUSSIAN as GAUSSIAN_FAMILY,
+    dirichlet_kl,
+    infer_distribution_family,
+)
 
 
 class NWJNet(nn.Module):
@@ -120,16 +127,45 @@ def build_dataset(data_args, n_dims, seed):
     distributions as TDRE/BDRE/DV.
     """
     n_train_samples = int(data_args["n_samples"])
-    gauss_dataset = GAUSSIANS(
-        n_samples=n_train_samples,
-        n_dims=n_dims,
-        numerator_mean=data_args["numerator_mean"],
-        numerator_cov=data_args["numerator_cov"],
-        denominator_mean=data_args["denominator_mean"],
-        denominator_cov=data_args["denominator_cov"],
-        seed=seed
-    )
-    return gauss_dataset, n_train_samples
+    family = infer_distribution_family(data_args)
+    if family == GAUSSIAN_FAMILY:
+        dataset = GAUSSIANS(
+            n_samples=n_train_samples,
+            n_dims=n_dims,
+            numerator_mean=data_args["numerator_mean"],
+            numerator_cov=data_args["numerator_cov"],
+            denominator_mean=data_args["denominator_mean"],
+            denominator_cov=data_args["denominator_cov"],
+            seed=seed,
+        )
+    elif family == DIRICHLET_FAMILY:
+        dataset = DIRICHLET(
+            n_samples=n_train_samples,
+            n_dims=n_dims,
+            numerator_concentration=data_args["numerator_concentration"],
+            denominator_concentration=data_args["denominator_concentration"],
+            seed=seed,
+        )
+    else:
+        raise ValueError(f"Unsupported distribution family {family}")
+    return dataset, n_train_samples, family
+
+
+def compute_true_kl(data_args):
+    family = infer_distribution_family(data_args)
+    if family == GAUSSIAN_FAMILY:
+        return float(kl_between_gaussians_with_mean(
+            np.array(data_args["numerator_mean"]),
+            np.array(data_args["numerator_cov"]),
+            np.array(data_args["denominator_mean"]),
+            np.array(data_args["denominator_cov"]),
+        ))
+    if family == DIRICHLET_FAMILY:
+        return float(dirichlet_kl(
+            np.array(data_args["numerator_concentration"]),
+            np.array(data_args["denominator_concentration"]),
+        ))
+    raise ValueError(f"Unsupported distribution family {family}")
 
 
 def train_nwj(model, dataset, config, device):
@@ -180,7 +216,7 @@ def train_nwj(model, dataset, config, device):
         x_val_np = dataset.trn.x
     x_val = torch.tensor(x_val_np, dtype=torch.float32, device=device)
 
-    # clamp_min, clamp_max = -5.0, 5.0
+    clamp_min, clamp_max = -7.0, 7.0
 
     for epoch in range(n_epochs):
         model.train()
@@ -198,11 +234,11 @@ def train_nwj(model, dataset, config, device):
             f_p0 = model(x_p0)
 
             # t(x) = clamp(f(x)), g(x) = exp(t(x))
-            # t_p1 = torch.clamp(f_p1, clamp_min, clamp_max)
-            # t_p0 = torch.clamp(f_p0, clamp_min, clamp_max)
+            t_p1 = torch.clamp(f_p1, clamp_min, clamp_max)
+            t_p0 = torch.clamp(f_p0, clamp_min, clamp_max)
 
-            t_p1 = f_p1
-            t_p0 = f_p0
+            # t_p1 = f_p1
+            # t_p0 = f_p0
 
             g_p1 = torch.exp(t_p1)
             g_p0 = torch.exp(t_p0)
@@ -243,11 +279,11 @@ def train_nwj(model, dataset, config, device):
             x_p0_val = torch.tensor(denom_val, dtype=torch.float32, device=device)
             f_p0_val = model(x_p0_val)
 
-            # t_p1_val = torch.clamp(f_p1_val, clamp_min, clamp_max)
-            # t_p0_val = torch.clamp(f_p0_val, clamp_min, clamp_max)
+            t_p1_val = torch.clamp(f_p1_val, clamp_min, clamp_max)
+            t_p0_val = torch.clamp(f_p0_val, clamp_min, clamp_max)
 
-            t_p1_val = f_p1_val
-            t_p0_val = f_p0_val
+            # t_p1_val = f_p1_val
+            # t_p0_val = f_p0_val
 
             g_p1_val = torch.exp(t_p1_val)
             g_p0_val = torch.exp(t_p0_val)
@@ -292,6 +328,31 @@ def save_metadata(save_dir, tdre_config, nwj_config, true_kl):
         json.dump(metadata, f, indent=4)
 
 
+# def parse_args():
+#     parser = argparse.ArgumentParser(description="Train NWJ estimator for gaussians_10d configs")
+#     parser.add_argument("--config_path", type=str, required=True,
+#                         help="Path like gaussians_10d/model/0")
+#     parser.add_argument("--hidden_dims", type=int, nargs="+", default=[256, 256],
+#                         help="Hidden layer sizes of the NWJ network.")
+#     parser.add_argument("--activation", type=str, default="relu")
+#     parser.add_argument("--lr", type=float, default=5e-5)
+#     parser.add_argument("--weight_decay", type=float, default=5e-5,
+#                         help="L2 weight decay for Adam.")
+#     parser.add_argument("--n_epochs", type=int, default=500,
+#                         help="[Deprecated] kept for CLI compat; effective training is via target_updates.")
+#     parser.add_argument("--batch_size", type=int, default=128)
+#     parser.add_argument("--target_updates", type=int, default=1000,
+#                         help="Approximate total number of optimizer updates per run.")
+#     parser.add_argument("--patience", type=int, default=30)
+#     parser.add_argument("--grad_clip", type=float, default=5.0,
+#                         help="Gradient norm clip value (set <=0 to disable).")
+#     parser.add_argument("--seed_offset", type=int, default=0,
+#                         help="Extra offset added to TDRE data_seed.")
+#     parser.add_argument("--save_root", type=str, default="nwj_gaussians_10d_kl10",
+#                         help="Subdirectory under saved_models/")
+#     parser.add_argument("--device", type=str, default="cpu")
+#     return parser.parse_args()
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train NWJ estimator for gaussians_10d configs")
     parser.add_argument("--config_path", type=str, required=True,
@@ -300,7 +361,7 @@ def parse_args():
                         help="Hidden layer sizes of the NWJ network.")
     parser.add_argument("--activation", type=str, default="relu")
     parser.add_argument("--lr", type=float, default=5e-5)
-    parser.add_argument("--weight_decay", type=float, default=5e-5,
+    parser.add_argument("--weight_decay", type=float, default=1e-4,
                         help="L2 weight decay for Adam.")
     parser.add_argument("--n_epochs", type=int, default=500,
                         help="[Deprecated] kept for CLI compat; effective training is via target_updates.")
@@ -308,11 +369,13 @@ def parse_args():
     parser.add_argument("--target_updates", type=int, default=1000,
                         help="Approximate total number of optimizer updates per run.")
     parser.add_argument("--patience", type=int, default=30)
-    parser.add_argument("--grad_clip", type=float, default=5.0,
+    parser.add_argument("--grad_clip", type=float, default=3.0,
                         help="Gradient norm clip value (set <=0 to disable).")
+    parser.add_argument("--critic_type", type=str, choices=["mlp", "quadratic"], default=None,
+                        help="Critic architecture (defaults to quadratic for Gaussians, MLP otherwise).")
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Extra offset added to TDRE data_seed.")
-    parser.add_argument("--save_root", type=str, default="nwj_tailored_gaussians_10d",
+    parser.add_argument("--save_root", type=str, default="nwj_pstar_p0_kl10",
                         help="Subdirectory under saved_models/")
     parser.add_argument("--device", type=str, default="cpu")
     return parser.parse_args()
@@ -324,11 +387,12 @@ def main():
     data_cfg = tdre_config["data"]
     seed = int(data_cfg.get("data_seed", 0)) + args.seed_offset
 
-    dataset, n_train_samples = build_dataset(
+    dataset, n_train_samples, family = build_dataset(
         data_cfg["data_args"],
         int(data_cfg["n_dims"]),
         seed,
     )
+    critic_type = args.critic_type or ("quadratic" if family == GAUSSIAN_FAMILY else "mlp")
 
     nwj_config = {
         "input_dim": int(data_cfg["n_dims"]),
@@ -342,6 +406,7 @@ def main():
         "grad_clip": args.grad_clip if args.grad_clip > 0 else None,
         "n_train_samples": n_train_samples,
         "target_updates": args.target_updates,
+        "critic_type": critic_type,
     }
 
     stub = _extract_stub(data_cfg["save_dir"])
@@ -356,20 +421,19 @@ def main():
     #     nwj_config["activation"],
     # )
 
-    # Alternatively, use a Gaussian-tailored quadratic critic.
-    # Comment out the MLP line above and uncomment the line below
-    # to use this version instead (make sure to do the same in eval).
-    model = QuadraticNWJNet(nwj_config["input_dim"])
+    if critic_type == "quadratic":
+        model = QuadraticNWJNet(nwj_config["input_dim"])
+    else:
+        model = NWJNet(
+            nwj_config["input_dim"],
+            nwj_config["hidden_dims"],
+            nwj_config["activation"],
+        )
 
     state_dict = train_nwj(model, dataset, nwj_config, device=torch.device(args.device))
     torch.save(state_dict, os.path.join(save_dir, "nwj_model.pt"))
 
-    true_kl = float(kl_between_gaussians_with_mean(
-        np.array(data_cfg["data_args"]["numerator_mean"]),
-        np.array(data_cfg["data_args"]["numerator_cov"]),
-        np.array(data_cfg["data_args"]["denominator_mean"]),
-        np.array(data_cfg["data_args"]["denominator_cov"]),
-    ))
+    true_kl = compute_true_kl(data_cfg["data_args"])
     save_metadata(save_dir, tdre_config, nwj_config, true_kl)
     print(f"Saved NWJ model to {save_dir}")
 

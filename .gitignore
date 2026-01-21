@@ -4,6 +4,7 @@
 *.sh
 saved_models/
 configs/
+results/
 .idea/
 configs/
 *.txt
@@ -12,4 +13,6 @@ density_data
 
 MDRE.pdf
 NWJ.pdf
-
+DV.pdf
+TDRE.pdf
+TSM.pdf

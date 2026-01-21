@@ -15,6 +15,7 @@ for root in roots:
         sys.path.append(root)
 
 from data_handlers.gaussians import GAUSSIANS
+from data_handlers.dirichlet import DIRICHLET
 from data_handlers.mnist import MNIST
 from data_handlers.grid_data import *
 from data_handlers.one_dim_data import *

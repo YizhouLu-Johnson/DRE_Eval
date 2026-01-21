@@ -22,7 +22,14 @@ tf.disable_v2_behavior()
 from __init__ import project_root
 from train_bdre import train_bdre
 from data_handlers.gaussians import GAUSSIANS
+from data_handlers.dirichlet import DIRICHLET as DIRICHLET_DATASET
 from data_handlers.two_gaussians import kl_between_gaussians_with_mean
+from utils.distribution_utils import (
+    GAUSSIAN,
+    DIRICHLET,
+    dirichlet_kl,
+    infer_distribution_family,
+)
 
 
 def _load_tdre_config(config_path):
@@ -64,30 +71,58 @@ class _BDREDataset:
 
 def build_dataset(data_args, n_dims, seed):
     n_train_samples = int(data_args["n_samples"])
+    family = infer_distribution_family(data_args)
 
-    gauss_dataset = GAUSSIANS(
-        n_samples=n_train_samples,
-        n_dims=n_dims,
-        numerator_mean=data_args["numerator_mean"],
-        numerator_cov=data_args["numerator_cov"],
-        denominator_mean=data_args["denominator_mean"],
-        denominator_cov=data_args["denominator_cov"],
-        seed=seed
-    )
+    if family == GAUSSIAN:
+        base_dataset = GAUSSIANS(
+            n_samples=n_train_samples,
+            n_dims=n_dims,
+            numerator_mean=data_args["numerator_mean"],
+            numerator_cov=data_args["numerator_cov"],
+            denominator_mean=data_args["denominator_mean"],
+            denominator_cov=data_args["denominator_cov"],
+            seed=seed,
+        )
+    elif family == DIRICHLET:
+        base_dataset = DIRICHLET_DATASET(
+            n_samples=n_train_samples,
+            n_dims=n_dims,
+            numerator_concentration=data_args["numerator_concentration"],
+            denominator_concentration=data_args["denominator_concentration"],
+            seed=seed,
+        )
+    else:
+        raise ValueError(f"Unsupported distribution family: {family}")
 
     def make_split(split):
         n = split.x.shape[0]
         p1 = split.x
-        p0 = gauss_dataset.sample_denominator(n)
+        p0 = base_dataset.sample_denominator(n)
         return _BDRESplit(p0, p1)
 
     dataset = _BDREDataset(
-        trn=make_split(gauss_dataset.trn),
-        val=make_split(gauss_dataset.val),
-        tst=make_split(gauss_dataset.tst)
+        trn=make_split(base_dataset.trn),
+        val=make_split(base_dataset.val),
+        tst=make_split(base_dataset.tst)
     )
-
     return dataset, n_train_samples
+
+
+def compute_true_kl(data_args):
+    family = infer_distribution_family(data_args)
+    if family == GAUSSIAN:
+        return float(kl_between_gaussians_with_mean(
+            np.array(data_args["numerator_mean"]),
+            np.array(data_args["numerator_cov"]),
+            np.array(data_args["denominator_mean"]),
+            np.array(data_args["denominator_cov"]),
+        ))
+    if family == DIRICHLET:
+        return float(dirichlet_kl(
+            np.array(data_args["numerator_concentration"]),
+            np.array(data_args["denominator_concentration"]),
+        ))
+    raise ValueError(f"Unsupported distribution family: {family}")
 
 
 def make_bdre_config(args, n_dims, n_train_samples):
@@ -131,20 +166,48 @@ def parse_args():
     )
     parser.add_argument("--config_path", type=str, required=True,
                         help="Path like gaussians_10d/model/0")
-    parser.add_argument("--hidden_dims", type=int, nargs="+", default=[32, 32],
+    parser.add_argument("--hidden_dims", type=int, nargs="+", default=[64, 64],
                         help="BDRE MLP hidden sizes")
     parser.add_argument("--activation", type=str, default="relu")
-    parser.add_argument("--reg_coef", type=float, default=1e-2)
-    parser.add_argument("--dropout_rate", type=float, default=0.3)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--n_epochs", type=int, default=100) #300
-    parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--reg_coef", type=float, default=1e-1,
+                        help="L2 regularization coefficient (increased to prevent overfitting)")
+    parser.add_argument("--dropout_rate", type=float, default=0.4,
+                        help="Dropout rate (increased to prevent overfitting)")
+    parser.add_argument("--batch_size", type=int, default=256,
+                        help="Larger batch size for more stable gradients")
+    parser.add_argument("--n_epochs", type=int, default=100,
+                        help="Fewer epochs to prevent overfitting")
+    parser.add_argument("--lr", type=float, default=1e-4,
+                        help="Lower learning rate for more stable training")
+    parser.add_argument("--patience", type=int, default=5,
+                        help="Earlier stopping to prevent overfitting")
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Extra offset added to the TDRE data_seed")
-    parser.add_argument("--save_root", type=str, default="bdre_gaussians_10d",
+    parser.add_argument("--save_root", type=str, default="bdre_pstar_p0_kl10",
                         help="Subdirectory inside saved_models/")
     return parser.parse_args()
+
+# def parse_args():
+#     parser = ArgumentParser(
+#         description="Train BDRE models for gaussians_10d configs",
+#         formatter_class=ArgumentDefaultsHelpFormatter
+#     )
+#     parser.add_argument("--config_path", type=str, required=True,
+#                         help="Path like gaussians_10d/model/0")
+#     parser.add_argument("--hidden_dims", type=int, nargs="+", default=[4, 4],
+#                         help="BDRE MLP hidden sizes")
+#     parser.add_argument("--activation", type=str, default="relu")
+#     parser.add_argument("--reg_coef", type=float, default=1e-2)
+#     parser.add_argument("--dropout_rate", type=float, default=0.3)
+#     parser.add_argument("--batch_size", type=int, default=128)
+#     parser.add_argument("--n_epochs", type=int, default=60) #300
+#     parser.add_argument("--lr", type=float, default=2e-4)
+#     parser.add_argument("--patience", type=int, default=10)
+#     parser.add_argument("--seed_offset", type=int, default=0,
+#                         help="Extra offset added to the TDRE data_seed")
+#     parser.add_argument("--save_root", type=str, default="bdre_gaussians_10d_kl5",
+#                         help="Subdirectory inside saved_models/")
+#     return parser.parse_args()
 
 
 def main():
@@ -174,12 +237,7 @@ def main():
     sess, graph, _ = train_bdre(bdre_config, dataset, save_dir)
     sess.close()
 
-    true_kl = float(kl_between_gaussians_with_mean(
-        np.array(data_args["numerator_mean"]),
-        np.array(data_args["numerator_cov"]),
-        np.array(data_args["denominator_mean"]),
-        np.array(data_args["denominator_cov"])
-    ))
+    true_kl = compute_true_kl(data_args)
 
     save_metadata(save_dir, tdre_config, bdre_config, true_kl)
     print("Done!")

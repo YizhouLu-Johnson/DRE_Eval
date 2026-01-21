@@ -11,9 +11,9 @@ from utils.plot_utils import *
 
 
 def tf_build_noise_additive_waymarks_on_the_fly(data, waymark_idxs, config, logger, noise_dist=None):
-    logger.info("--------------------------------------")
-    logger.info("Generating noise-additive waymarks on-the-fly!")
-    logger.info("--------------------------------------")
+    # logger.info("--------------------------------------")
+    # logger.info("Generating noise-additive waymarks on-the-fly!")
+    # logger.info("--------------------------------------")
 
     batch_size_per_waymark, event_shape, event_ones, n_data, n_waymarks, waymark_shp = \
         _tf_get_shapes_for_additive_wmarks(data, waymark_idxs, config, logger)
@@ -48,9 +48,9 @@ def tf_build_noise_additive_waymarks_on_the_fly(data, waymark_idxs, config, logg
 
 def tf_build_dimwise_mixing_waymarks_on_the_fly(data, waymark_idxs,
                                                 dimwise_mixing_ordering, config, logger, noise_dist=None):
-    logger.info("--------------------------------------")
-    logger.info("Generating dimension-wise-mixing-based waymarks on-the-fly!")
-    logger.info("--------------------------------------")
+    # logger.info("--------------------------------------")
+    # logger.info("Generating dimension-wise-mixing-based waymarks on-the-fly!")
+    # logger.info("--------------------------------------")
 
     if config.do_mutual_info_estimation:
         x, y = tf.unstack(data, axis=-1)  # each (2*batch_size, *event_dims)
@@ -170,7 +170,7 @@ def _tf_get_shapes_for_additive_wmarks(data, waymark_idxs, config, logger):
         n_data -= tf.mod(n_data, n_waymarks)
         batch_size_per_waymark = n_data / n_waymarks
     else:
-        logger.info("Waymark samples are coupled! (this is the default setting)")
+        # logger.info("Waymark samples are coupled! (this is the default setting)")
         batch_size_per_waymark = n_data
 
     waymark_shp = [batch_size_per_waymark, n_waymarks, *event_dims]
@@ -246,9 +246,9 @@ def _np_get_shapes_for_additive_wmarks(waymark_idxs, config, data):
 
 
 def build_gauss_sampled_waymarks_on_the_fly(config, logger, n_waymarks, pholders):
-    logger.info("--------------------------------------")
-    logger.info("sampling gaussian waymarks on-the-fly!")
-    logger.info("--------------------------------------")
+    # logger.info("--------------------------------------")
+    # logger.info("sampling gaussian waymarks on-the-fly!")
+    # logger.info("--------------------------------------")
 
     correlation_coefs = tf.gather(config.gauss_interpolation_covariances, pholders.waymark_idxs)
     waymark_dists = build_blockwise_correlated_gaussian_waymarks(config.n_dims, n_waymarks, correlation_coefs)
@@ -286,9 +286,10 @@ def get_waymark_and_bridge_idxs_for_epoch_i(config, iter_idx):
     bridge_idxs = waymark_idxs[:-1]
 
     if config.get("epoch_idx", -1) == 0 and iter_idx == 0:
-        logger.info("-------------------------------------")
-        logger.info("absolute waymark idxs: {}".format(waymark_idxs))
-        logger.info("-------------------------------------")
+        # logger.info("-------------------------------------")
+        # logger.info("absolute waymark idxs: {}".format(waymark_idxs))
+        # logger.info("-------------------------------------")
+        pass
 
     config["waymark_idxs"] = waymark_idxs
     config["bridge_idxs"] = bridge_idxs

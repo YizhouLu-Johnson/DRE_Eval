@@ -1,5 +1,5 @@
 """
-Train Donsker–Varadhan (DV) estimators on the gaussians_10d configs.
+Train Donsker–Varadhan (DV) estimators on the gaussians_10d or dirichlet_10d configs.
 
 This script mirrors train_bdre_gaussians_10d.py but implements the DV objective
 in PyTorch. It loads the TDRE config to reuse the exact same data parameters
@@ -17,11 +17,19 @@ import torch.nn as nn
 
 from __init__ import project_root
 from data_handlers.gaussians import GAUSSIANS
+from data_handlers.dirichlet import DIRICHLET
 from data_handlers.two_gaussians import kl_between_gaussians_with_mean
+from utils.distribution_utils import (
+    DIRICHLET as DIRICHLET_FAMILY,
+    GAUSSIAN as GAUSSIAN_FAMILY,
+    dirichlet_kl,
+    get_distribution_params,
+    infer_distribution_family,
+)
 
 
 class DVNet(nn.Module):
-    def __init__(self, input_dim, hidden_dims, activation="relu"):
+    def __init__(self, input_dim, hidden_dims, activation="relu", dropout_rate=0.0):
         super().__init__()
         layers = []
         dims = [input_dim] + hidden_dims
@@ -33,6 +41,8 @@ class DVNet(nn.Module):
         for i in range(len(hidden_dims)):
             layers.append(nn.Linear(dims[i], dims[i + 1]))
             layers.append(act_layer())
+            if dropout_rate and dropout_rate > 0.0:
+                layers.append(nn.Dropout(dropout_rate))
         layers.append(nn.Linear(dims[-1], 1))
         self.net = nn.Sequential(*layers)
 
@@ -64,16 +74,45 @@ def _ensure_serializable(data):
 
 def build_dataset(data_args, n_dims, seed):
     n_train_samples = int(data_args["n_samples"])
-    gauss_dataset = GAUSSIANS(
-        n_samples=n_train_samples,
-        n_dims=n_dims,
-        numerator_mean=data_args["numerator_mean"],
-        numerator_cov=data_args["numerator_cov"],
-        denominator_mean=data_args["denominator_mean"],
-        denominator_cov=data_args["denominator_cov"],
-        seed=seed
-    )
-    return gauss_dataset, n_train_samples
+    family = infer_distribution_family(data_args)
+    if family == GAUSSIAN_FAMILY:
+        dataset = GAUSSIANS(
+            n_samples=n_train_samples,
+            n_dims=n_dims,
+            numerator_mean=data_args["numerator_mean"],
+            numerator_cov=data_args["numerator_cov"],
+            denominator_mean=data_args["denominator_mean"],
+            denominator_cov=data_args["denominator_cov"],
+            seed=seed,
+        )
+    elif family == DIRICHLET_FAMILY:
+        dataset = DIRICHLET(
+            n_samples=n_train_samples,
+            n_dims=n_dims,
+            numerator_concentration=data_args["numerator_concentration"],
+            denominator_concentration=data_args["denominator_concentration"],
+            seed=seed,
+        )
+    else:
+        raise ValueError(f"Unsupported distribution family {family}")
+    return dataset, n_train_samples, family
+
+
+def compute_true_kl(data_args):
+    family = infer_distribution_family(data_args)
+    if family == GAUSSIAN_FAMILY:
+        return float(kl_between_gaussians_with_mean(
+            np.array(data_args["numerator_mean"]),
+            np.array(data_args["numerator_cov"]),
+            np.array(data_args["denominator_mean"]),
+            np.array(data_args["denominator_cov"]),
+        ))
+    if family == DIRICHLET_FAMILY:
+        return float(dirichlet_kl(
+            np.array(data_args["numerator_concentration"]),
+            np.array(data_args["denominator_concentration"]),
+        ))
+    raise ValueError(f"Unsupported distribution family {family}")
 
 
 def train_dv(model, dataset, config, device):
@@ -241,18 +280,41 @@ def parse_args():
                         help="Gradient norm clip value (set <=0 to disable).")
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Extra offset added to TDRE data_seed.")
-    parser.add_argument("--save_root", type=str, default="dv_gaussians_10d",
+    parser.add_argument("--save_root", type=str, default="dv_pstar_p0_kl80",
                         help="Subdirectory under saved_models/")
     parser.add_argument("--device", type=str, default="cpu")
     return parser.parse_args()
 
+
+# def parse_args():
+#     parser = argparse.ArgumentParser(description="Train DV estimator for gaussians_10d configs")
+#     parser.add_argument("--config_path", type=str, required=True,
+#                         help="Path like gaussians_10d/model/0")
+#     parser.add_argument("--hidden_dims", type=int, nargs="+", default=[128, 128],
+#                         help="Hidden layer sizes of the DV network.")
+#     parser.add_argument("--activation", type=str, default="relu")
+#     parser.add_argument("--lr", type=float, default=5e-5)
+#     parser.add_argument("--weight_decay", type=float, default=1e-4)
+#     parser.add_argument("--n_epochs", type=int, default=400)
+#     parser.add_argument("--batch_size", type=int, default=128)
+#     parser.add_argument("--target_updates", type=int, default=800,
+#                         help="Approximate total number of optimizer updates per run.")
+#     parser.add_argument("--patience", type=int, default=30)
+#     parser.add_argument("--grad_clip", type=float, default=3.0,
+#                         help="Gradient norm clip value (set <=0 to disable).")
+#     parser.add_argument("--seed_offset", type=int, default=0,
+#                         help="Extra offset added to TDRE data_seed.")
+#     parser.add_argument("--save_root", type=str, default="dv_gaussians_10d",
+#                         help="Subdirectory under saved_models/")
+#     parser.add_argument("--device", type=str, default="cpu")
+#     return parser.parse_args()
 
 def main():
     args = parse_args()
     tdre_config = _load_tdre_config(args.config_path)
     data_cfg = tdre_config["data"]
     seed = int(data_cfg.get("data_seed", 0)) + args.seed_offset
-    dataset, n_train_samples = build_dataset(data_cfg["data_args"], int(data_cfg["n_dims"]), seed)
+    dataset, n_train_samples, family = build_dataset(data_cfg["data_args"], int(data_cfg["n_dims"]), seed)
 
     dv_config = {
         "input_dim": int(data_cfg["n_dims"]),
@@ -276,12 +338,7 @@ def main():
     state_dict = train_dv(model, dataset, dv_config, device=torch.device(args.device))
     torch.save(state_dict, os.path.join(save_dir, "dv_model.pt"))
 
-    true_kl = float(kl_between_gaussians_with_mean(
-        np.array(data_cfg["data_args"]["numerator_mean"]),
-        np.array(data_cfg["data_args"]["numerator_cov"]),
-        np.array(data_cfg["data_args"]["denominator_mean"]),
-        np.array(data_cfg["data_args"]["denominator_cov"])
-    ))
+    true_kl = compute_true_kl(data_cfg["data_args"])
     save_metadata(save_dir, tdre_config, dv_config, true_kl)
     print(f"Saved DV model to {save_dir}")
 
